@@ -111,130 +111,112 @@ void scan_elf (Elf           *e,
 	       const char    *exit_symbol,
 	       const char    *tohost_symbol,
 
-	       Elf_Features  *p_features)
+	       Elf_Features  *p_features, Elf_Scn *scn, GElf_Shdr shdr)
 {
     bool pass1 = (p_features->mem_buf == NULL);
     bool pass2 = (p_features->mem_buf != NULL);
 
-    // Grab the string section index
-    size_t shstrndx;
-    shstrndx = ehdr->e_shstrndx;
+    Elf_Data *data = 0;
+    // If we find an 'ALLOC' type section, it belongs in the memhex
+    if (shdr.sh_flags & SHF_ALLOC) {
+        data = elf_getdata (scn, data);
 
-    // Iterate through each of the sections looking for code that should be loaded
-    Elf_Scn  *scn   = 0;
-    GElf_Shdr shdr;
+        // data->sh_addr may be virtual; find the phys addr from the segment table
+        uint64_t section_paddr = fn_vaddr_to_paddr (e, shdr.sh_addr, data->d_size);
+        if (pass1) {
+            fprintf (stdout, "vaddr %16" PRIx64 " to vaddr %16" PRIx64 "; size 0x%lx (= %0ld) bytes\n",
+                     shdr.sh_addr, shdr.sh_addr + data->d_size, data->d_size, data->d_size);
+            fprintf (stdout, "                              paddr %16" PRIx64 "\n", section_paddr);
+        }
 
-    while ((scn = elf_nextscn (e,scn)) != NULL) {
-        // get the header information for this section
-        gelf_getshdr (scn, & shdr);
+        if (data->d_size == 0) {
+            if (pass1)
+                fprintf (stdout, "    Empty section (0-byte size), ignoring\n");
+        }
+        else if (pass1) {
+            if (section_paddr < p_features->min_paddr)
+                p_features->min_paddr = section_paddr;
+            if (p_features->max_paddr < (section_paddr + data->d_size - 1))
+                p_features->max_paddr = section_paddr + data->d_size - 1;
+        }
+        else if (pass2 && (shdr.sh_type != SHT_NOBITS)) {
+            // fprintf (stdout, "Section %-20s: ", sec_name);
+            fprintf (stdout, " Copying data from ELF into mem_buf: addr 0x%0lx bytes 0x%0lx (%0ld)\n",
+                     section_paddr, data->d_size, data->d_size);
+            memcpy (& (p_features->mem_buf [section_paddr - p_features->min_paddr]),
+                    data->d_buf,
+                    data->d_size);
 
-	char *sec_name = elf_strptr (e, shstrndx, shdr.sh_name);
-	if (pass1)
-	    fprintf (stdout, "Section %-20s: ", sec_name);
+            /* DEBUGGING
+            for (int j = 0; j < data->d_size; j += 64) {
+                fprintf (stdout, "  ");
+                for (int k = 0; k < 64; k++)
+                    if (j + k < data->d_size)
+                        fprintf (stdout, "%2x",
+                                 p_features->mem_buf [section_paddr - p_features->min_paddr + j + k]);
+                fprintf (stdout, "\n");
+            } */
+        }
+    }
 
-	Elf_Data *data = 0;
-	// If we find an 'ALLOC' type section, it belongs in the memhex
-	if (shdr.sh_flags & SHF_ALLOC) {
-	    data = elf_getdata (scn, data);
+    // If we find the symbol table, search for symbols of interest (on pass 1)
+    else if ((shdr.sh_type == SHT_SYMTAB) && pass1) {
+        fprintf (stdout, "Searching for addresses of '%s', '%s' and '%s' symbols\n",
+                 start_symbol, exit_symbol, tohost_symbol);
 
-	    // data->sh_addr may be virtual; find the phys addr from the segment table
-	    uint64_t section_paddr = fn_vaddr_to_paddr (e, shdr.sh_addr, data->d_size);
-	    if (pass1) {
-		fprintf (stdout, "vaddr %16" PRIx64 " to vaddr %16" PRIx64 "; size 0x%lx (= %0ld) bytes\n",
-			 shdr.sh_addr, shdr.sh_addr + data->d_size, data->d_size, data->d_size);
-		fprintf (stdout, "                              paddr %16" PRIx64 "\n", section_paddr);
-	    }
+        // Get the section data
+        data = elf_getdata (scn, data);
 
-	    if (data->d_size == 0) {
-		if (pass1)
-		    fprintf (stdout, "    Empty section (0-byte size), ignoring\n");
-	    }
-	    else if (pass1) {
-		if (section_paddr < p_features->min_paddr)
-		    p_features->min_paddr = section_paddr;
-		if (p_features->max_paddr < (section_paddr + data->d_size - 1))
-		    p_features->max_paddr = section_paddr + data->d_size - 1;
-	    }
-	    else if (pass2 && (shdr.sh_type != SHT_NOBITS)) {
-		fprintf (stdout, "Section %-20s: ", sec_name);
-		fprintf (stdout, " Copying data from ELF into mem_buf: addr 0x%0lx bytes 0x%0lx (%0ld)\n",
-			 section_paddr, data->d_size, data->d_size);
-		memcpy (& (p_features->mem_buf [section_paddr - p_features->min_paddr]),
-			data->d_buf,
-			data->d_size);
+        // Get the number of symbols in this section
+        int symbols = shdr.sh_size / shdr.sh_entsize;
 
-		/* DEBUGGING
-		for (int j = 0; j < data->d_size; j += 64) {
-		    fprintf (stdout, "  ");
-		    for (int k = 0; k < 64; k++)
-			if (j + k < data->d_size)
-			    fprintf (stdout, "%2x",
-				     p_features->mem_buf [section_paddr - p_features->min_paddr + j + k]);
-		    fprintf (stdout, "\n");
-		}
-		*/
-	    }
-	}
+        // search for the uart_default symbols we need to potentially modify.
+        GElf_Sym sym;
+        int i;
+        for (i = 0; i < symbols; ++i) {
+            // get the symbol data
+            gelf_getsym (data, i, &sym);
 
-	// If we find the symbol table, search for symbols of interest (on pass 1)
-	else if ((shdr.sh_type == SHT_SYMTAB) && pass1) {
-	    fprintf (stdout, "Searching for addresses of '%s', '%s' and '%s' symbols\n",
-		     start_symbol, exit_symbol, tohost_symbol);
+            // get the name of the symbol
+            char *name = elf_strptr (e, shdr.sh_link, sym.st_name);
 
- 	    // Get the section data
-	    data = elf_getdata (scn, data);
+            // Look for, and remember PC of the start symbol
+            if (strcmp (name, start_symbol) == 0) {
+                p_features->pc_start = fn_vaddr_to_paddr (e, sym.st_value, 4);
+            }
+            // Look for, and remember PC of the exit symbol
+            else if (strcmp (name, exit_symbol) == 0) {
+                p_features->pc_exit = fn_vaddr_to_paddr (e, sym.st_value, 4);
+            }
+            // Look for, and remember addr of 'tohost' symbol
+            else if (strcmp (name, tohost_symbol) == 0) {
+                p_features->tohost_addr = fn_vaddr_to_paddr (e, sym.st_value, 4);
+            }
+        }
 
-	    // Get the number of symbols in this section
-	    int symbols = shdr.sh_size / shdr.sh_entsize;
+        fprintf (stdout, "Symbols of interest\n");
 
-	    // search for the uart_default symbols we need to potentially modify.
-	    GElf_Sym sym;
-	    int i;
-	    for (i = 0; i < symbols; ++i) {
-	        // get the symbol data
-	        gelf_getsym (data, i, &sym);
+        fprintf (stdout, "    _start");
+        if (p_features->pc_start == -1)
+            fprintf (stdout, "    Not found\n");
+        else
+            fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->pc_start);
 
-		// get the name of the symbol
-		char *name = elf_strptr (e, shdr.sh_link, sym.st_name);
+        fprintf (stdout, "    exit  ");
+        if (p_features->pc_exit == -1)
+            fprintf (stdout, "    Not found\n");
+        else
+            fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->pc_exit);
 
-		// Look for, and remember PC of the start symbol
-		if (strcmp (name, start_symbol) == 0) {
-		    p_features->pc_start = fn_vaddr_to_paddr (e, sym.st_value, 4);
-		}
-		// Look for, and remember PC of the exit symbol
-		else if (strcmp (name, exit_symbol) == 0) {
-		    p_features->pc_exit = fn_vaddr_to_paddr (e, sym.st_value, 4);
-		}
-		// Look for, and remember addr of 'tohost' symbol
-		else if (strcmp (name, tohost_symbol) == 0) {
-		    p_features->tohost_addr = fn_vaddr_to_paddr (e, sym.st_value, 4);
-		}
-	    }
-
-	    fprintf (stdout, "Symbols of interest\n");
-
-	    fprintf (stdout, "    _start");
-	    if (p_features->pc_start == -1)
-		fprintf (stdout, "    Not found\n");
-	    else
-		fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->pc_start);
-
-	    fprintf (stdout, "    exit  ");
-	    if (p_features->pc_exit == -1)
-		fprintf (stdout, "    Not found\n");
-	    else
-		fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->pc_exit);
-
-	    fprintf (stdout, "    tohost");
-	    if (p_features->tohost_addr == -1)
-		fprintf (stdout, "    Not found\n");
-	    else
-		fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->tohost_addr);
-	}
-	else {
-	    if (pass1)
-		fprintf (stdout, "ELF section ignored\n");
-	}
+        fprintf (stdout, "    tohost");
+        if (p_features->tohost_addr == -1)
+            fprintf (stdout, "    Not found\n");
+        else
+            fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->tohost_addr);
+    }
+    else {
+        if (pass1)
+            fprintf (stdout, "ELF section ignored\n");
     }
 }
 
@@ -333,39 +315,78 @@ int c_mem_load_elf (const char    *elf_filename,
 	return RESULT_ERR;
     }
 
-    p_features->mem_buf     = NULL;
-    p_features->bitwidth    = 0;
-    p_features->min_paddr   = 0xFFFFFFFFFFFFFFFFllu;
-    p_features->max_paddr   = 0x0000000000000000llu;
-    p_features->pc_start    = 0xFFFFFFFFFFFFFFFFllu;
-    p_features->pc_exit     = 0xFFFFFFFFFFFFFFFFllu;
-    p_features->tohost_addr = 0xFFFFFFFFFFFFFFFFllu;
+    // Iterate through each of the sections looking for code that should be loaded
+    Elf_Scn  *scn   = 0;
 
-    // Pass 1: analysis and fill in p_features
-    fprintf (stdout, ">================================================================\n");
-    fprintf (stdout, "PASS 1: analyzing ELF\n");
-    scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features);
+    while ((scn = elf_nextscn (e,scn)) != NULL) {
+       GElf_Shdr shdr;
 
-    uint64_t mem_buf_size = p_features->max_paddr + 1 - p_features->min_paddr;
-    fprintf (stdout, "Min paddr: 0x%016" PRIx64 "\n", p_features->min_paddr);
-    fprintf (stdout, "Max paddr: 0x%016" PRIx64 "\n", p_features->max_paddr);
-    fprintf (stdout, "Size:      0x%016" PRIx64 " (%0" PRId64 ") bytes\n", mem_buf_size, mem_buf_size);
+       // Grab the string section index
+       size_t shstrndx;
+       shstrndx = ehdr.e_shstrndx;
 
-    // Pass 2: create mem_buf and extract data into mem_buf
-    fprintf (stdout, ">================================================================\n");
-    fprintf (stdout, "PASS 2: getting payload\n");
+       p_features->mem_buf     = NULL;
+       p_features->bitwidth    = 0;
+       p_features->min_paddr   = 0xFFFFFFFFFFFFFFFFllu;
+       p_features->max_paddr   = 0x0000000000000000llu;
+       p_features->pc_start    = 0xFFFFFFFFFFFFFFFFllu;
+       p_features->pc_exit     = 0xFFFFFFFFFFFFFFFFllu;
+       p_features->tohost_addr = 0xFFFFFFFFFFFFFFFFllu;
 
-    // Allocate mem_buf, sufficiently large, and zero it out.
-    p_features->mem_buf = (uint8_t *) malloc (mem_buf_size);
-    if (p_features->mem_buf == NULL) {
-	fprintf (stdout, "ERROR: c_mem_load_elf: unable to malloc buf of above size\n");
-	return RESULT_ERR;
+       // Pass 1: analysis and fill in p_features for the given section
+       fprintf (stdout, ">================================================================\n");
+       fprintf (stdout, "PASS 1: analyzing ELF\n");
+
+       // get the header information for this section
+       gelf_getshdr (scn, & shdr);
+       char *sec_name = elf_strptr (e, shstrndx, shdr.sh_name);
+       fprintf (stdout, "Section %-20s: ", sec_name);
+       scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features, scn, shdr);
+
+       uint64_t mem_buf_size = p_features->max_paddr + 1 - p_features->min_paddr;
+       fprintf (stdout, "Min paddr: 0x%016" PRIx64 "\n", p_features->min_paddr);
+       fprintf (stdout, "Max paddr: 0x%016" PRIx64 "\n", p_features->max_paddr);
+       fprintf (stdout, "Size:      0x%016" PRIx64 " (%0" PRId64 ") bytes\n", mem_buf_size, mem_buf_size);
+
+       // Pass 2: create mem_buf and extract data into mem_buf
+       fprintf (stdout, ">================================================================\n");
+       fprintf (stdout, "PASS 2: getting payload\n");
+
+       // Allocate mem_buf, sufficiently large, and zero it out.
+       p_features->mem_buf = (uint8_t *) malloc (mem_buf_size);
+       if (p_features->mem_buf == NULL) {
+           fprintf (stdout, "ERROR: c_mem_load_elf: unable to malloc buf of above size\n");
+           return RESULT_ERR;
+       }
+
+       bzero (p_features->mem_buf, mem_buf_size);
+       fprintf (stdout, "c_mem_load_elf: created and zeroed mem_buf from %0lx through %0lx\n",
+                p_features->min_paddr, p_features->max_paddr);
+
+       scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features, scn, shdr);
+
+       // Write out the mem_buf into a hex32 for this section
+       // Write out Mem.hex32 file
+       char *op_fn = (char *) malloc (20 * sizeof (char));
+       sprintf (op_fn, "%s.hex32", sec_name);
+       fprintf (stdout, "Writing Mem.hex32 file: %s\n", op_fn);
+       FILE *fout = fopen (op_fn, "w");
+       if (fout == NULL) {
+           fprintf (stdout, "ERROR: unable to open file for writing: %s\n", op_fn);
+           return 1;
+       }
+
+       uint64_t min_paddr = ((p_features->min_paddr >> 2) << 2);
+       uint64_t max_paddr = (p_features->max_paddr | 0x3);
+
+       fprintf (fout, "@%0lx\n", (min_paddr >> 2));
+       for (uint64_t paddr = min_paddr; paddr <= max_paddr; paddr += 4) {
+           uint32_t *p = (uint32_t *) (p_features->mem_buf + (paddr - min_paddr));
+           fprintf (fout, "%08x    // %08lx\n", *p, paddr);
+       }
+       fclose (fout);
+       free (p_features->mem_buf);
     }
-    bzero (p_features->mem_buf, mem_buf_size);
-    fprintf (stdout, "c_mem_load_elf: created and zeroed mem_buf from %0lx through %0lx\n",
-	     p_features->min_paddr, p_features->max_paddr);
-
-    scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features);
 
     elf_end (e);
 
@@ -386,25 +407,7 @@ int main (int argc, char *argv [])
     // Load ELF file into mem buf
     int retcode = c_mem_load_elf (argv [1], "_start", "exit", "tohost", & elf_features);
     if (retcode != 0)
-	return 1;
-
-    // Write out Mem.hex32 file
-    fprintf (stdout, "Writing Mem.hex32 file: %s\n", argv [2]);
-    FILE *fout = fopen (argv [2], "w");
-    if (fout == NULL) {
-	fprintf (stdout, "ERROR: unable to open file for writing: %s\n", argv [2]);
-	return 1;
-    }
-
-    uint64_t min_paddr = ((elf_features.min_paddr >> 2) << 2);
-    uint64_t max_paddr = (elf_features.max_paddr | 0x3);
-
-    fprintf (fout, "@%0lx\n", (min_paddr >> 2));
-    for (uint64_t paddr = min_paddr; paddr <= max_paddr; paddr += 4) {
-	uint32_t *p = (uint32_t *) (elf_features.mem_buf + (paddr - min_paddr));
-	fprintf (fout, "%08x    // %08lx\n", *p, paddr);
-    }
-    fclose (fout);
-
-    return 0;
+	return 1; 
+    else
+       return 0;
 }
