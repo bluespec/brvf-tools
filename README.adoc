@@ -5,3 +5,5 @@ This repository is meant to be a collection of home-grown RISC-V tools and utili
 Tools currently in this repository:
 
 * *Elf_to_Hex*: Converts RISC-V elf files to hex files for loading to memory. This tool has been imported from: `~nikhil/Git/RISCV_Tools/Elf_to_Hex`
+
+* *Run_regression.py*: Runs a regression of ISA tests in simulation
