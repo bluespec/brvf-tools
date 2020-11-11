@@ -318,6 +318,9 @@ int c_mem_load_elf (const char    *elf_filename,
     // Iterate through each of the sections looking for code that should be loaded
     Elf_Scn  *scn   = 0;
 
+    p_features->pc_start    = 0xFFFFFFFFFFFFFFFFllu;
+    p_features->pc_exit     = 0xFFFFFFFFFFFFFFFFllu;
+    p_features->tohost_addr = 0xFFFFFFFFFFFFFFFFllu;
     while ((scn = elf_nextscn (e,scn)) != NULL) {
        GElf_Shdr shdr;
 
@@ -329,9 +332,6 @@ int c_mem_load_elf (const char    *elf_filename,
        p_features->bitwidth    = 0;
        p_features->min_paddr   = 0xFFFFFFFFFFFFFFFFllu;
        p_features->max_paddr   = 0x0000000000000000llu;
-       p_features->pc_start    = 0xFFFFFFFFFFFFFFFFllu;
-       p_features->pc_exit     = 0xFFFFFFFFFFFFFFFFllu;
-       p_features->tohost_addr = 0xFFFFFFFFFFFFFFFFllu;
 
        // Pass 1: analysis and fill in p_features for the given section
        fprintf (stdout, ">================================================================\n");
@@ -388,6 +388,26 @@ int c_mem_load_elf (const char    *elf_filename,
        free (p_features->mem_buf);
     }
 
+    FILE *fp_symbol_table = fopen ("symbol_table.txt", "w");
+    if (fp_symbol_table != NULL) {
+	fprintf (stdout, "Writing symbols to:    symbol_table.txt\n");
+	if (p_features -> pc_start == -1)
+	    fprintf (stdout, "    No '_start' label found\n");
+	else
+	    fprintf (fp_symbol_table, "_start    0x%0" PRIx64 "\n", p_features -> pc_start);
+
+	if (p_features -> pc_exit == -1)
+	    fprintf (stdout, "    No 'exit' label found\n");
+	else
+	    fprintf (fp_symbol_table, "exit      0x%0" PRIx64 "\n", p_features -> pc_exit);
+
+	if (p_features -> tohost_addr == -1)
+	    fprintf (stdout, "    No 'tohost' symbol found\n");
+	else
+	    fprintf (fp_symbol_table, "tohost    0x%0" PRIx64 "\n", p_features -> tohost_addr);
+
+	fclose (fp_symbol_table);
+    }
     elf_end (e);
 
     return RESULT_OK;
