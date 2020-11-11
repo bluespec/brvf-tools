@@ -22,3 +22,6 @@ Converts the Mem.hex32 file (e.g., created by Elf_to_Hex32.c) for a
 memory array with a different width, base, size, etc.
 
 >----------------
+
+Mem0.hex is a dummy memory hex file where the memory is all zeros.
+It can be used to load a 256-bit wide memory which is 256MB.
