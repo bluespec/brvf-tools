@@ -105,7 +105,7 @@ uint64_t fn_vaddr_to_paddr (Elf *e, uint64_t vaddr, uint64_t size)
 // Pass 2: with p_features->mem_buf != NULL: fills data starting at min_paddr
 
 static
-void scan_elf (Elf           *e,
+int scan_elf (Elf           *e,
 	       GElf_Ehdr     *ehdr,
 	       const char    *start_symbol,
 	       const char    *exit_symbol,
@@ -213,11 +213,18 @@ void scan_elf (Elf           *e,
             fprintf (stdout, "    Not found\n");
         else
             fprintf (stdout, "    0x%0" PRIx64 "\n", p_features->tohost_addr);
+
+        // This section does not allocate to memory
+        return (1);
     }
     else {
-        if (pass1)
+        if (pass1) {
             fprintf (stdout, "ELF section ignored\n");
+            // This section does not allocate to memory
+            return (1);
+        }
     }
+    return (0);
 }
 
 // ================================================================
@@ -341,51 +348,54 @@ int c_mem_load_elf (const char    *elf_filename,
        gelf_getshdr (scn, & shdr);
        char *sec_name = elf_strptr (e, shstrndx, shdr.sh_name);
        fprintf (stdout, "Section %-20s: ", sec_name);
-       scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features, scn, shdr);
+       int ignore = scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features, scn, shdr);
 
-       uint64_t mem_buf_size = p_features->max_paddr + 1 - p_features->min_paddr;
-       fprintf (stdout, "Min paddr: 0x%016" PRIx64 "\n", p_features->min_paddr);
-       fprintf (stdout, "Max paddr: 0x%016" PRIx64 "\n", p_features->max_paddr);
-       fprintf (stdout, "Size:      0x%016" PRIx64 " (%0" PRId64 ") bytes\n", mem_buf_size, mem_buf_size);
+       // If the section is to be allocated to memory
+       if (ignore == 0) {
+          uint64_t mem_buf_size = p_features->max_paddr + 1 - p_features->min_paddr;
+          fprintf (stdout, "Min paddr: 0x%016" PRIx64 "\n", p_features->min_paddr);
+          fprintf (stdout, "Max paddr: 0x%016" PRIx64 "\n", p_features->max_paddr);
+          fprintf (stdout, "Size:      0x%016" PRIx64 " (%0" PRId64 ") bytes\n", mem_buf_size, mem_buf_size);
 
-       // Pass 2: create mem_buf and extract data into mem_buf
-       fprintf (stdout, ">================================================================\n");
-       fprintf (stdout, "PASS 2: getting payload\n");
+          // Pass 2: create mem_buf and extract data into mem_buf
+          fprintf (stdout, ">================================================================\n");
+          fprintf (stdout, "PASS 2: getting payload\n");
 
-       // Allocate mem_buf, sufficiently large, and zero it out.
-       p_features->mem_buf = (uint8_t *) malloc (mem_buf_size);
-       if (p_features->mem_buf == NULL) {
-           fprintf (stdout, "ERROR: c_mem_load_elf: unable to malloc buf of above size\n");
-           return RESULT_ERR;
+          // Allocate mem_buf, sufficiently large, and zero it out.
+          p_features->mem_buf = (uint8_t *) malloc (mem_buf_size);
+          if (p_features->mem_buf == NULL) {
+              fprintf (stdout, "ERROR: c_mem_load_elf: unable to malloc buf of above size\n");
+              return RESULT_ERR;
+          }
+
+          bzero (p_features->mem_buf, mem_buf_size);
+          fprintf (stdout, "c_mem_load_elf: created and zeroed mem_buf from %0lx through %0lx\n",
+                   p_features->min_paddr, p_features->max_paddr);
+
+          scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features, scn, shdr);
+
+          // Write out the mem_buf into a hex32 for this section
+          // Write out Mem.hex32 file
+          char *op_fn = (char *) malloc (20 * sizeof (char));
+          sprintf (op_fn, "%s.hex32", sec_name);
+          fprintf (stdout, "Writing Mem.hex32 file: %s\n", op_fn);
+          FILE *fout = fopen (op_fn, "w");
+          if (fout == NULL) {
+              fprintf (stdout, "ERROR: unable to open file for writing: %s\n", op_fn);
+              return 1;
+          }
+
+          uint64_t min_paddr = ((p_features->min_paddr >> 2) << 2);
+          uint64_t max_paddr = (p_features->max_paddr | 0x3);
+
+          fprintf (fout, "@%0lx\n", (min_paddr >> 2));
+          for (uint64_t paddr = min_paddr; paddr <= max_paddr; paddr += 4) {
+              uint32_t *p = (uint32_t *) (p_features->mem_buf + (paddr - min_paddr));
+              fprintf (fout, "%08x    // %08lx\n", *p, paddr);
+          }
+          fclose (fout);
+          free (p_features->mem_buf);
        }
-
-       bzero (p_features->mem_buf, mem_buf_size);
-       fprintf (stdout, "c_mem_load_elf: created and zeroed mem_buf from %0lx through %0lx\n",
-                p_features->min_paddr, p_features->max_paddr);
-
-       scan_elf (e, & ehdr, start_symbol, exit_symbol, tohost_symbol, p_features, scn, shdr);
-
-       // Write out the mem_buf into a hex32 for this section
-       // Write out Mem.hex32 file
-       char *op_fn = (char *) malloc (20 * sizeof (char));
-       sprintf (op_fn, "%s.hex32", sec_name);
-       fprintf (stdout, "Writing Mem.hex32 file: %s\n", op_fn);
-       FILE *fout = fopen (op_fn, "w");
-       if (fout == NULL) {
-           fprintf (stdout, "ERROR: unable to open file for writing: %s\n", op_fn);
-           return 1;
-       }
-
-       uint64_t min_paddr = ((p_features->min_paddr >> 2) << 2);
-       uint64_t max_paddr = (p_features->max_paddr | 0x3);
-
-       fprintf (fout, "@%0lx\n", (min_paddr >> 2));
-       for (uint64_t paddr = min_paddr; paddr <= max_paddr; paddr += 4) {
-           uint32_t *p = (uint32_t *) (p_features->mem_buf + (paddr - min_paddr));
-           fprintf (fout, "%08x    // %08lx\n", *p, paddr);
-       }
-       fclose (fout);
-       free (p_features->mem_buf);
     }
 
     FILE *fp_symbol_table = fopen ("symbol_table.txt", "w");
