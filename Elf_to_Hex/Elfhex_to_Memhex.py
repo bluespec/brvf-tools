@@ -92,6 +92,10 @@ def process_input_file (i_filename, params):
     sys.stdout.write ("Input Mem.hex32 file:  '{:s}'\n".format (i_filename))
     sys.stdout.write ("    (assumed width 32 bits, base byte-address 0x0)\n")
 
+    if not os.path.isfile (i_filename) :
+        sys.stdout.write ("WARN: input file '{:s}' does not exist. Ignoring.\n".format (i_filename))
+        return True
+
     try:
         f_in = open (i_filename, "r")
     except:
