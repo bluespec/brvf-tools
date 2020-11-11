@@ -427,8 +427,9 @@ int c_mem_load_elf (const char    *elf_filename,
 
 int main (int argc, char *argv [])
 {
-    if (argc < 3) {
-	fprintf (stdout, "Usage:    %s  <elf_file_name>  <mem_hex_file_name>\n", argv [0]);
+    if (argc < 2) {
+	fprintf (stdout, "Usage:    %s  <elf_file_name>\n", argv [0]);
+	fprintf (stdout, "Generates section-wise breakup of the input elf file\n");
 	return 1;
     }
 
