@@ -130,8 +130,11 @@ int scan_elf (Elf           *e,
         }
 
         if (data->d_size == 0) {
-            if (pass1)
+            if (pass1) {
                 fprintf (stdout, "    Empty section (0-byte size), ignoring\n");
+                // Do not allocate this section to memory
+                return (1);
+            }
         }
         else if (pass1) {
             if (section_paddr < p_features->min_paddr)
