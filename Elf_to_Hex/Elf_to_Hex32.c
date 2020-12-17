@@ -193,7 +193,11 @@ int scan_elf (Elf           *e,
             }
             // Look for, and remember addr of 'tohost' symbol
             else if (strcmp (name, tohost_symbol) == 0) {
+	      if (sym.st_info == ELF64_ST_INFO(STB_GLOBAL, STT_NOTYPE)) {
+                p_features->tohost_addr = sym.st_value;
+	      } else {
                 p_features->tohost_addr = fn_vaddr_to_paddr (e, sym.st_value, 4);
+	      }
             }
         }
 
@@ -441,7 +445,7 @@ int main (int argc, char *argv [])
     // Load ELF file into mem buf
     int retcode = c_mem_load_elf (argv [1], "_start", "exit", "tohost", & elf_features);
     if (retcode != 0)
-	return 1; 
+	return 1;
     else
        return 0;
 }

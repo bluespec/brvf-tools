@@ -69,7 +69,7 @@ def main (argv = None):
     if (params ["o_index"] < params ["o_mem_size"]):
         sys.stdout.write ("Adding trailer for final index 0x{:_x} ({:,d})\n"
                           .format (params ["o_mem_size"] - 1, params ["o_mem_size"] - 1))
-        params ["f_out"].write ("@{:x}\n".format (params ["o_mem_size"] - 1))
+        params ["f_out"].write ("@{:x}\n".format ((params ["o_mem_size"]>>3) - 1))
         params ["f_out"].write ("0\n")
         params ["o_line_number"] += 2
 
