@@ -138,13 +138,20 @@ def process_input_file (i_filename, params):
             sys.stdout.write ("  Input addr line: word index 0x_{:_x}\n".format (i_index))
             sys.stdout.write ("  Byte addr                   0x_{:_x}\n".format (addr))
             if (addr % params ["o_width_B"] != 0) :
+                # pad bytes at the beginning of a section if the start address is not aligned to
+                # memory width. NOTE this will *only* work if the memory width is some multiple
+                # of 32-bits.
+                pad_bytes = addr % params ['o_width_B']
                 sys.stdout.write ("WARN: this is not aligned for an output index\n")
-                sys.stdout.write ("Padding zeros. Reducing start address by 4.\n")
-                word32 = 0
-                addr -= 4
-                word32_s = "{:08x}".format (word32)
-                o_word_s = word32_s + o_word_s
-                o_bytes += 4
+                sys.stdout.write ("Padding %d bytes. Reducing start address by (%d).\n"
+                        % (pad_bytes, pad_bytes))
+                while (pad_bytes > 0) :
+                    word32 = 0
+                    addr -= 4
+                    word32_s = "{:08x}".format (word32)
+                    o_word_s = word32_s + o_word_s
+                    o_bytes += 4
+                    pad_bytes -= 4
 
             # Write address line in output file
             params ["o_index"] = (addr - params ["o_base_addr"]) // params ["o_width_B"]
