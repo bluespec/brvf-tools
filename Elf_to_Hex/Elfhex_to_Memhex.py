@@ -137,10 +137,14 @@ def process_input_file (i_filename, params):
 
             sys.stdout.write ("  Input addr line: word index 0x_{:_x}\n".format (i_index))
             sys.stdout.write ("  Byte addr                   0x_{:_x}\n".format (addr))
-            if (addr % params ["o_width_B"] != 0):
-                sys.stdout.write ("ERROR: this is not aligned for an output index\n")
-                f_in.close()
-                return False
+            if (addr % params ["o_width_B"] != 0) :
+                sys.stdout.write ("WARN: this is not aligned for an output index\n")
+                sys.stdout.write ("Padding zeros. Reducing start address by 4.\n")
+                word32 = 0
+                addr -= 4
+                word32_s = "{:08x}".format (word32)
+                o_word_s = word32_s + o_word_s
+                o_bytes += 4
 
             # Write address line in output file
             params ["o_index"] = (addr - params ["o_base_addr"]) // params ["o_width_B"]
