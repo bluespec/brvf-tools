@@ -142,7 +142,7 @@ def process_input_file (i_filename, params):
                 # memory width. NOTE this will *only* work if the memory width is some multiple
                 # of 32-bits.
                 pad_bytes = addr % params ['o_width_B']
-                sys.stdout.write ("WARN: this is not aligned for an output index\n")
+                sys.stdout.write ("WARN: section is not aligned for an output index\n")
                 sys.stdout.write ("Padding %d bytes. Reducing start address by (%d).\n"
                         % (pad_bytes, pad_bytes))
                 while (pad_bytes > 0) :
@@ -190,7 +190,7 @@ def process_input_file (i_filename, params):
                           .format (o_bytes, params ["o_width_B"]))
         o_word_s = ((params ["o_width_B"] - o_bytes) * "00") + o_word_s
         params ["f_out"].write ("{:s}".format (o_word_s))
-        params ["f_out"].write ("  // {:_x}\n".format (addr - params ["o_width_B"]))
+        params ["f_out"].write ("  // {:_x}\n".format (addr - o_bytes))
 
         params ["o_line_number"] += 1
         params ["o_index"]       += 1
