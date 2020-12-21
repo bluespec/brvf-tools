@@ -118,6 +118,24 @@ def process_input_file (i_filename, params):
 
         # sys.stdout.write ("L{:d}:{:s}".format (i_line_number, i_line))
         if i_line.startswith ("@"):
+            # Write out any trailing words from the previous section. This scenario is possible
+            # if there are multiple disjoint segments in a single .hex32
+            trailing_bytes = o_bytes
+            if (o_bytes != 0):
+                sys.stdout.write ("Padding trailing {:0d} bytes to {:0d} bytes\n"
+                                  .format (o_bytes, params ["o_width_B"]))
+                o_word_s = ((params ["o_width_B"] - o_bytes) * "00") + o_word_s
+                params ["f_out"].write ("{:s}".format (o_word_s))
+                params ["f_out"].write ("  // {:_x}\n".format (addr - o_bytes))
+
+                params ["o_line_number"] += 1
+                params ["o_index"]       += 1
+
+            # ... and now continue onto the new section
+            # Initialize the word collector and byte counter.
+            o_word_s = ""
+            o_bytes = 0
+
             # Note: @... lines contain ram indexes, not byte addresses
             try:
                 new_i_index = int (i_words [0] [1:], 16)
@@ -134,7 +152,6 @@ def process_input_file (i_filename, params):
                 return False
 
             addr = i_index * 4
-
             sys.stdout.write ("  Input addr line: word index 0x_{:_x}\n".format (i_index))
             sys.stdout.write ("  Byte addr                   0x_{:_x}\n".format (addr))
             if (addr % params ["o_width_B"] != 0) :
