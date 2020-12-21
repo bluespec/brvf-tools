@@ -50,9 +50,11 @@ def fn_merge_hex32 (src_idx, source, outf, cur_idx) :
         if line.startswith ('@') :
             # At the beginning of a section the cur_idx points to the idx of the last
             # word in the precvious section.  
-            if (((src_idx - cur_idx) <= 4) and (cur_idx != 0)) :
+            if ((src_idx == cur_idx) and (cur_idx != 0)) :
                 # Do not start a new section in the merged file as the new section
                 # continues from where the last one left off
+                sys.stdout.write ("INFO: Continuing section (src_idx: %d) (cur_idx: %d)\n"
+                        % (src_idx, cur_idx))
                 pass
 
             else :
@@ -61,7 +63,7 @@ def fn_merge_hex32 (src_idx, source, outf, cur_idx) :
 
         elif ishexnum (words [0]) :
             outf.write (line)
-            cur_idx += 4            # increment the index by 4 as we are handling .hex32
+            cur_idx += 1            # increment the index by 1 as we are handling .hex32 indices
 
         else : pass
 
