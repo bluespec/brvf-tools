@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <inttypes.h>
 #include <string.h>
 #include <fcntl.h>
@@ -245,7 +246,7 @@ void c_mem_load_elf (char *elf_filename,
 // Min and max byte addrs for various mem sizes
 
 // #define BASE_ADDR_B  0x80000000lu
-
+/*
 // For 16 KB memory at 0x_8000_0000
 #define MIN_MEM_ADDR_16KB BASE_ADDR_B
 #define MAX_MEM_ADDR_16KB  (BASE_ADDR_B +    0x4000lu)
@@ -318,94 +319,128 @@ void c_mem_load_elf (char *elf_filename,
 #ifdef MEM_SIZE_256M
 #define MAX_MEM_ADDR MAX_MEM_ADDR_256MB
 #endif
+*/
 
 // ================================================================
 
-// Write out from word containing addr1 to word containing addr2
-void write_mem_hex_file (FILE *fp, uint64_t addr1, uint64_t addr2)
+// Write out from word containing base_addr to word containing addr2
+void write_mem_hex_file (
+      FILE *fp, uint64_t base_addr, uint64_t addr2, uint64_t max_addr)
 {
     const uint64_t bits_per_raw_mem_word   = 32;
     uint64_t bytes_per_raw_mem_word  = bits_per_raw_mem_word / 8;    // 32
     uint64_t raw_mem_word_align_mask = (~ ((uint64_t) (bytes_per_raw_mem_word - 1)));
 
-    fprintf (stdout, "Subtracting 0x%08" PRIx64 " base from addresses\n", BASE_ADDR_B);
+    fprintf (stdout, "Subtracting 0x%08" PRIx64 " base from addresses\n", base_addr);
 
     // Align the start and end addrs to raw mem words
-    uint64_t a1 = (addr1 & raw_mem_word_align_mask);
+    uint64_t a1 = (base_addr & raw_mem_word_align_mask);
     uint64_t a2 = ((addr2 + bytes_per_raw_mem_word - 1) & raw_mem_word_align_mask);
 
     fprintf (fp, "@%07" PRIx64 "    // raw_mem addr;  byte addr: %08" PRIx64 "\n",
-	     ((a1 - BASE_ADDR_B) / bytes_per_raw_mem_word),
-	     a1 - BASE_ADDR_B);
+	     ((a1 - base_addr) / bytes_per_raw_mem_word),
+	     a1 - base_addr);
 	     
     uint64_t addr;
     for (addr = a1; addr < a2; addr += bytes_per_raw_mem_word) {
 	for (int j = (bytes_per_raw_mem_word - 1); j >= 0; j--)
 	    fprintf (fp, "%02x", mem_buf [addr+j]);
 	fprintf (fp, "    // raw_mem addr %08" PRIx64 ";  byte addr %08" PRIx64 "\n",
-		 ((addr - BASE_ADDR_B) / bytes_per_raw_mem_word),
-		 (addr  - BASE_ADDR_B));
+		 ((addr - base_addr) / bytes_per_raw_mem_word),
+		 (addr  - base_addr));
     }
 
     // Write last word, if necessary, to avoid warnings about missing locations
-    if (addr < (MAX_MEM_ADDR - bytes_per_raw_mem_word)) {
-	addr = MAX_MEM_ADDR - bytes_per_raw_mem_word;
+    if (addr < (max_addr - bytes_per_raw_mem_word)) {
+	addr = max_addr - bytes_per_raw_mem_word;
 	fprintf (fp, "@%07" PRIx64 "    // last raw_mem addr;  byte addr: %08" PRIx64 "\n",
-		 ((addr - BASE_ADDR_B) / bytes_per_raw_mem_word),
-		 addr - BASE_ADDR_B);
+		 ((addr - base_addr) / bytes_per_raw_mem_word),
+		 addr - base_addr);
 	for (int j = (bytes_per_raw_mem_word - 1); j >= 0; j--)
 	    fprintf (fp, "%02x", 0);
 	fprintf (fp, "    // raw_mem addr %08" PRIx64 ";  byte addr %08" PRIx64 "\n",
-		 ((addr - BASE_ADDR_B) / bytes_per_raw_mem_word),
-		 (addr  - BASE_ADDR_B));
+		 ((addr - base_addr) / bytes_per_raw_mem_word),
+		 (addr  - base_addr));
     }
 }
 
 // ================================================================
 
-void print_usage (FILE *fp, int argc, char *argv [])
+void print_usage (FILE *fp, char *ap)
 {
     fprintf (fp, "Usage:\n");
-    fprintf (fp, "    %s  --help\n", argv [0]);
-    fprintf (fp, "    %s  <ELF filename>  <mem hex filename>\n", argv [0]);
-    fprintf (fp, "Reads ELF file and writes a Verilog Hex Memory image file\n");
-    fprintf (fp, "ELF file should have addresses within this range:\n");
-    fprintf (fp, "<  Max: 0x%8" PRIx64 "\n", MAX_MEM_ADDR);
-    fprintf (fp, ">= Min: 0x%8" PRIx64 "\n", MIN_MEM_ADDR_256MB);
+    fprintf (fp, "    %s : \n", ap);
+    fprintf (fp, "       -e <ELF filename> \n");
+    fprintf (fp, "       -h <mem hex filename> \n");
+    fprintf (fp, "       -m <mem size in KB> <default: 16> \n");
+    fprintf (fp, "       -b <base address of memory> <default: 0xc0000000lu>\n");
+    fprintf (fp, "Reads ELF file and writes a verilog hex 32-bit memory image file\n");
 }
 
 // ================================================================
 
 int main (int argc, char *argv [])
 {
-    if ((argc == 2) && (strcmp (argv [1], "--help") == 0)) {
-	print_usage (stdout, argc, argv);
-	return 0;
-    }
-    else if (argc != 3) {
-	print_usage (stderr, argc, argv);
-	return 1;
-    }
+   // ---- Command line parsing
+   int opt;
+
+   // elf and hex filenames
+   char *elf_fn = malloc (255 * sizeof(char));
+   char *hex_fn = malloc (255 * sizeof(char));
+
+   uint64_t base_addr = 0xc0000000lu;
+   uint64_t max_mem_addr = base_addr;
+   uint64_t mem_size  = 16;
+
+   while ((opt = getopt (argc, argv, "e:h:m:b:")) != -1)
+      switch (opt) {
+         case 'e' :
+            elf_fn = optarg;
+            break;
+         case 'h' :
+            hex_fn = optarg;
+            break;
+         case 'm' :
+            mem_size = atoi (optarg);
+            break;
+         case 'b' :
+            if (sscanf (optarg, "%lx", &base_addr) != 1) {
+               fprintf (stderr, "ERR: -b expects a hex argument\n");
+               return 1;
+            }
+            break;
+         case '?' :
+            print_usage (stderr, argv[0]);
+            return 1;
+         default :
+            print_usage (stderr, argv[0]);
+            return 1;
+      }
+
+    // Recompute the max_mem_addr based on CLA
+    max_mem_addr = base_addr + (mem_size * 1024);
+
+   // ---- Command line parsing
 
     // Zero out the memory buffer before loading the ELF file
     bzero (mem_buf, MAX_MEM_SIZE);
-    // bzero (& (mem_buf [BASE_ADDR_B]), MAX_MEM_SIZE - BASE_ADDR_B);
 
-    c_mem_load_elf (argv [1], "_start", "exit", "tohost");
+    c_mem_load_elf (elf_fn, "_start", "exit", "tohost");
 
-    if ((min_addr < BASE_ADDR_B) || (MAX_MEM_ADDR <= max_addr)) {
-	print_usage (stderr, argc, argv);
+    if ((min_addr < base_addr) || (max_mem_addr <= max_addr)) {
+        fprintf (stderr, "elf addresses out of range (%lx - %lx)\n"
+              , base_addr, max_mem_addr);
 	exit (1);
     }
 
-    FILE *fp_out = fopen (argv [2], "w");
+    FILE *fp_out = fopen (hex_fn, "w");
     if (fp_out == NULL) {
-	fprintf (stderr, "ERROR: unable to open file '%s' for output\n", argv [2]);
+	fprintf (stderr, "ERROR: unable to open file '%s' for output\n", hex_fn);
 	return 1;
     }
 
-    fprintf (stdout, "Writing mem hex to file '%s'\n", argv [2]);
-    write_mem_hex_file (fp_out, BASE_ADDR_B, max_addr);
+    fprintf (stdout, "Writing mem hex to file '%s'\n", hex_fn);
+    write_mem_hex_file (fp_out, base_addr, max_addr, max_mem_addr);
     // write_mem_hex_file (fp_out, BASE_ADDR_B, MAX_MEM_ADDR);
 
     fclose (fp_out);
