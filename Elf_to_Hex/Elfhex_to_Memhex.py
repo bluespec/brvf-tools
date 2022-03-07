@@ -6,6 +6,7 @@
 import os
 import sys
 import fileinput
+import math
 
 # ================================================================
 
@@ -34,6 +35,7 @@ def main (argv = None):
                           .format (params ["o_width_b"]))
         return 1
     params ["o_width_B"] = params ["o_width_b"] // 8
+    params ["o_log_width_B"] = (int) (math.log2 (params["o_width_B"]))
 
     if (params ["o_base_addr"] % params ["o_width_B"] != 0):
         sys.stdout.write ("ERROR: Output base addr (0x{:_x}) is aligned for output byte-width ({:d})\n"
@@ -69,7 +71,7 @@ def main (argv = None):
     if (params ["o_index"] < params ["o_mem_size"]):
         sys.stdout.write ("Adding trailer for final index 0x{:_x} ({:,d})\n"
                           .format (params ["o_mem_size"] - 1, params ["o_mem_size"] - 1))
-        params ["f_out"].write ("@{:x}\n".format ((params ["o_mem_size"]>>3) - 1))
+        params ["f_out"].write ("@{:x}\n".format ((params ["o_mem_size"]>>params["o_log_width_B"]) - 1))
         params ["f_out"].write ("0\n")
         params ["o_line_number"] += 2
 
