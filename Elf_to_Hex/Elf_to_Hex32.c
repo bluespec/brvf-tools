@@ -349,7 +349,7 @@ int c_mem_load_elf (const char    *elf_filename,
 
        // Pass 1: analysis and fill in p_features for the given section
        fprintf (stdout, ">================================================================\n");
-       fprintf (stdout, "PASS 1: analyzing ELF\n");
+       fprintf (stdout, "1: analyzing ELF\n");
 
        // get the header information for this section
        gelf_getshdr (scn, & shdr);
@@ -366,7 +366,7 @@ int c_mem_load_elf (const char    *elf_filename,
 
           // Pass 2: create mem_buf and extract data into mem_buf
           fprintf (stdout, ">================================================================\n");
-          fprintf (stdout, "PASS 2: getting payload\n");
+          fprintf (stdout, "2: getting payload\n");
 
           // Allocate mem_buf, sufficiently large, and zero it out.
           p_features->mem_buf = (uint8_t *) malloc (mem_buf_size);
