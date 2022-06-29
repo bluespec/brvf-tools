@@ -8,10 +8,13 @@
 
 usage()
 {
-    echo "usage: elfhex.sh [[-e elf_file ] [-m mem-size] [-b mem-base] [-w mem-width] | [-h]]"
+    echo "usage: elfhex.sh [[-e elf_file ] [-m mem-size] [-b mem-base] [-w mem-width] [-u] | [-h]]"
+    echo "-u is optional switch to indicate that we are using unified I and D memories"
     echo "Please ensure MCU_INSTALL points to your MCU installation folder" 
 }
 
+# By default, assume separate I and D mems
+unified_mem=0
 
 # Command line processing
 while [ "$1" != "" ]; do
@@ -31,6 +34,9 @@ while [ "$1" != "" ]; do
         -d | --dmem-base)  shift  # base address of dmemory
 	                   dmem_base=$1
                            ;;
+        -u | --unified)    shift # Do we have unified I and D mems?
+                           unified_mem=1
+                           ;;
         -h | --help )      usage
                            exit
                            ;;
@@ -40,30 +46,51 @@ while [ "$1" != "" ]; do
     shift
 done
 
+# Memory size in bytes
+let memsz_bytes=${mem_size}*1024
+
 TOOLS_DIR=$MCU_INSTALL/scripts
 
 # Step 1. Split elf into section wise hex files (32-bit hex)
 ${TOOLS_DIR}/Elf_to_Hex/Elf_to_Hex32.exe ${elf_input}
 
-# Step 2a. Combine text sections into a single elf file
-${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --source .startup.hex32 \
-                                        --source .text.startup.hex32 \
-                                        --source .text.hex32 --out I.hex32
+if [[ $unified_mem -eq 1 ]]
+then
+   # Step 2a. Combine all sections into a single elf file
+   ${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --source .startup.hex32 \
+                                           --source .text.startup.hex32 \
+                                           --source .text.hex32 \
+                                           --source .rodata.hex32 \
+                                           --source .data.hex32 \
+                                           --source .sdata.hex32 \
+                                           --source .eh_frame.hex32 \
+                                           --source .init_array.hex32 \
+                                           --source .fini_array.hex32  \
+                                           --source .sbss.hex32 \
+                                           --source .bss.hex32 --out M.hex32
 
-# Step 2b. Combine data sections into a single elf file
-${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --source .rodata.hex32 \
-                                        --source .data.hex32 \
-                                        --source .sdata.hex32 \
-                                        --source .eh_frame.hex32 \
-                                        --source .init_array.hex32 \
-                                        --source .fini_array.hex32  \
-                                        --source .sbss.hex32 \
-                                        --source .bss.hex32 --out D.hex32
+   # Step 3a. Generate ITCM memory image from I.hex32
+   ${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py /tmp/tcm.mem ${mem_width} ${imem_base} ${memsz_bytes} M.hex32
 
-let memsz_bytes=${mem_size}*1024
+else
+   # Step 2a. Combine text sections into a single elf file
+   ${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --source .startup.hex32 \
+                                           --source .text.startup.hex32 \
+                                           --source .text.hex32 --out I.hex32
 
-# Step 3a. Generate ITCM memory image from I.hex32
-${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py /tmp/itcm.mem ${mem_width} ${imem_base} ${memsz_bytes} I.hex32
+   # Step 2b. Combine data sections into a single elf file
+   ${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --source .rodata.hex32 \
+                                           --source .data.hex32 \
+                                           --source .sdata.hex32 \
+                                           --source .eh_frame.hex32 \
+                                           --source .init_array.hex32 \
+                                           --source .fini_array.hex32  \
+                                           --source .sbss.hex32 \
+                                           --source .bss.hex32 --out D.hex32
 
-# Step 3b. Generate ITCM memory image from D.hex32
-${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py /tmp/dtcm.mem ${mem_width} ${dmem_base} ${memsz_bytes} D.hex32
+   # Step 3a. Generate ITCM memory image from I.hex32
+   ${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py /tmp/itcm.mem ${mem_width} ${imem_base} ${memsz_bytes} I.hex32
+
+   # Step 3b. Generate ITCM memory image from D.hex32
+   ${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py /tmp/dtcm.mem ${mem_width} ${dmem_base} ${memsz_bytes} D.hex32
+fi
