@@ -396,7 +396,8 @@ int c_mem_load_elf (const char    *elf_filename,
           uint64_t max_paddr = (p_features->max_paddr | 0x3);
 
           fprintf (fout, "@%0lx\n", (min_paddr >> 2));
-          for (uint64_t paddr = min_paddr; paddr <= max_paddr; paddr += 4) {
+          uint64_t paddr;
+          for (paddr = min_paddr; paddr <= max_paddr; paddr += 4) {
               uint32_t *p = (uint32_t *) (p_features->mem_buf + (paddr - min_paddr));
               fprintf (fout, "%08x    // %08lx\n", *p, paddr);
           }
