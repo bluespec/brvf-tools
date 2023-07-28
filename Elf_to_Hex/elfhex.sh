@@ -59,32 +59,11 @@ ${TOOLS_DIR}/Elf_to_Hex/Elf_to_Hex32.exe ${elf_input}
 if [[ $unified_mem -eq 1 ]]
 then
    # Step 2a. Combine all sections into a single elf file
-   ${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --source .startup.hex32 \
-                                           --source .text.startup.hex32 \
-                                           --source .text.init.hex32 \
-                                           --source .text.hex32 \
-                                           --source .rodata.hex32 \
-                                           --source .data.hex32 \
-                                           --source .sdata.hex32 \
-                                           --source .eh_frame.hex32 \
-                                           --source .init_array.hex32 \
-                                           --source .fini_array.hex32  \
-                                           --source .tohost.hex32 \
-                                           --source .sbss.hex32 \
-                                           --source .user_stack.hex32 \
-                                           --source .kernel_stack.hex32 \
-                                           --source .page_table.hex32 \
-                                           --source .kernel_data.hex32 \
-                                           --source .bss.hex32 \
-                                           --source .region_0.hex32 \
-                                           --source .region_1.hex32 \
-                                           --source .region_2.hex32 \
-                                           --source .region_3.hex32 \
-                                           --out M.hex32
+   ${TOOLS_DIR}/Elf_to_Hex/Merge_Elfhex.py --out M.hex32
                                            
 
    # Step 3a. Generate ITCM memory image from I.hex32
-   ${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py /tmp/tcm.mem ${mem_width} ${imem_base} ${memsz_bytes} M.hex32
+    ${TOOLS_DIR}/Elf_to_Hex/Elfhex_to_Memhex.py ${out_dir}/ram.mem ${mem_width} ${imem_base} ${memsz_bytes} M.hex32
 
 else
    # Step 2a. Combine text sections into a single elf file

@@ -11,6 +11,7 @@ import argparse
 # Parse the input .hex32 and populate a dictionary of .hex32 files where the keys are the
 # RAM indices of the .hex32. NOTE that only a single index line can be in .hex32. 
 def fn_create_hex_dict (sources) :
+
     hex_dict = {}
     for src in sources :
         if not os.path.isfile (src) :
@@ -104,9 +105,19 @@ def main (argv):
         sys.stderr.write ("ERROR: Unable to open '%s' for writing\n" % args.merged_hex32)
         sys.exit (1)
 
+    CWD= os.getcwd()
+    sourceL=[]
+    if args.sourceL is None :
+        for file in os.listdir(CWD):
+    # check only text files
+             if file.endswith('.hex32'):
+                 sourceL.append(file)
+    else:
+        sourceL=args.sourceL  
+       
     # --------
     # Create a dictionary of start-idx, hex-file pairs
-    hex_dict = fn_create_hex_dict (args.sourceL)
+    hex_dict = fn_create_hex_dict (sourceL)
 
     # The keys in the hex_dict are the start indices
     # Process the .hex32 files in the ascending order of the keys
